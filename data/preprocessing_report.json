@@ -1,0 +1,89 @@
+{
+    "input": {
+        "raw_directory": "/Users/buiquynhhhoa/Project/NLP/Final_Project/Vietnamese-News-Classification/data/raw",
+        "source_statistics": {
+            "dantri": {
+                "total_lines": 400,
+                "valid_records": 400,
+                "invalid_json": 0,
+                "invalid_fields": 0
+            },
+            "thanhnien": {
+                "total_lines": 200,
+                "valid_records": 200,
+                "invalid_json": 0,
+                "invalid_fields": 0
+            },
+            "tuoitre": {
+                "total_lines": 403,
+                "valid_records": 403,
+                "invalid_json": 0,
+                "invalid_fields": 0
+            },
+            "vnexpress": {
+                "total_lines": 240,
+                "valid_records": 240,
+                "invalid_json": 0,
+                "invalid_fields": 0
+            }
+        }
+    },
+    "preprocessing": {
+        "records_after_preprocessing": 1243,
+        "rejected_categories": 0,
+        "duplicate_removal": {
+            "initial_records": 1243,
+            "duplicate_urls": 0,
+            "duplicate_title_date": 1,
+            "total_removed": 1,
+            "remaining_records": 1242
+        }
+    },
+    "dataset": {
+        "total_records": 1242,
+        "class_distribution": {
+            "business": 313,
+            "health": 310,
+            "sports": 310,
+            "education": 309
+        },
+        "source_distribution": {
+            "tuoitre": 403,
+            "dantri": 400,
+            "vnexpress": 239,
+            "thanhnien": 200
+        },
+        "missing_content": 1242,
+        "missing_publish_date": 403,
+        "title_only_records": 1242
+    },
+    "split": {
+        "random_state": 42,
+        "train_ratio": 0.7,
+        "validation_ratio": 0.15,
+        "test_ratio": 0.15,
+        "train_records": 869,
+        "validation_records": 186,
+        "test_records": 187
+    },
+    "class_distribution_by_split": {
+        "train": {
+            "business": 219,
+            "health": 217,
+            "sports": 217,
+            "education": 216
+        },
+        "validation": {
+            "business": 47,
+            "education": 47,
+            "health": 46,
+            "sports": 46
+        },
+        "test": {
+            "business": 47,
+            "sports": 47,
+            "health": 47,
+            "education": 46
+        }
+    }
+}
