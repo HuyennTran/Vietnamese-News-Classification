@@ -1,6 +1,6 @@
 {
-    "education": 0,
-    "business": 1,
-    "sports": 2,
-    "health": 3
+    "giáo dục": 0,
+    "kinh doanh": 1,
+    "thể thao": 2,
+    "sức khỏe": 3
 }
