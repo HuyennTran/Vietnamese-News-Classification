@@ -21,435 +21,149 @@ import pandas as pd
 from sklearn.model_selection import train_test_split
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent
+RAW_DIR = ROOT / "data" / "raw"
+OUTPUT_DIR = ROOT / "data"
 
-RAW_DIR = PROJECT_ROOT / "data" / "raw"
-DATA_DIR = PROJECT_ROOT / "data"
-
-LABELS_FILE = DATA_DIR / "labels.json"
-REPORT_FILE = DATA_DIR / "preprocessing_report.json"
-
-TRAIN_FILE = DATA_DIR / "train.csv"
-VAL_FILE = DATA_DIR / "validation.csv"
-TEST_FILE = DATA_DIR / "test.csv"
+CATEGORY_TO_LABEL = {
+    "giáo dục": 0,
+    "kinh doanh": 1,
+    "thể thao": 2,
+    "sức khỏe": 3
+}
 
 RANDOM_STATE = 42
 
-TRAIN_RATIO = 0.70
-VAL_RATIO = 0.15
-TEST_RATIO = 0.15
 
-CATEGORY_MAPPING = {
-    "giáo dục": "education",
-    "kinh doanh": "business",
-    "thể thao": "sports",
-    "sức khỏe": "health",
-}
-
-LABEL_MAPPING = {
-    "education": 0,
-    "business": 1,
-    "sports": 2,
-    "health": 3,
-}
-
-OUTPUT_COLUMNS = [
-    "id",
-    "source",
-    "url",
-    "title",
-    "content",
-    "text",
-    "publish_date",
-    "category",
-    "label",
-]
-
-
-def clean_text(value):
-    if value is None:
-        return ""
-
-    text = str(value)
-    text = html.unescape(text)
+def clean_text(text):
+    text = html.unescape(str(text))
     text = re.sub(r"<[^>]+>", " ", text)
     text = unicodedata.normalize("NFC", text)
-    text = re.sub(r"\s+", " ", text)
-
-    return text.strip()
-
-
-def normalize_category(category):
-    if category is None:
-        return None
-
-    category = clean_text(category).casefold()
-
-    return CATEGORY_MAPPING.get(category)
-
-
-def normalize_date(date_value):
-    if date_value is None or str(date_value).strip() == "":
-        return ""
-
-    try:
-        date = pd.to_datetime(date_value, errors="coerce")
-
-        if pd.isna(date):
-            return ""
-
-        return date.strftime("%Y-%m-%d")
-
-    except (ValueError, TypeError):
-        return ""
-
-
-def normalize_url(url):
-    if not url:
-        return ""
-
-    url = str(url).strip().lower()
-    url = url.split("?")[0]
-    url = url.split("#")[0]
-    url = url.rstrip("/")
-
-    return url
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def load_raw_data():
     records = []
-    source_stats = {}
 
-    jsonl_files = sorted(RAW_DIR.glob("*.jsonl"))
+    for file in sorted(RAW_DIR.glob("*.jsonl")):
+        with open(file, "r", encoding="utf-8") as f:
+            records.extend(
+                json.loads(line)
+                for line in f
+                if line.strip()
+            )
 
-    if not jsonl_files:
-        raise FileNotFoundError(
-            f"No JSONL files found in: {RAW_DIR}"
-        )
-
-    for file_path in jsonl_files:
-        source_name = file_path.stem
-
-        total_lines = 0
-        valid_records = 0
-        invalid_json = 0
-        invalid_fields = 0
-
-        with open(file_path, "r", encoding="utf-8") as file:
-            for line in file:
-                total_lines += 1
-
-                try:
-                    article = json.loads(line)
-
-                except json.JSONDecodeError:
-                    invalid_json += 1
-                    continue
-
-                if not isinstance(article, dict):
-                    invalid_fields += 1
-                    continue
-
-                required_fields = [
-                    "id",
-                    "source",
-                    "url",
-                    "category",
-                    "title",
-                ]
-
-                if any(
-                    article.get(field) is None
-                    or str(article.get(field)).strip() == ""
-                    for field in required_fields
-                ):
-                    invalid_fields += 1
-                    continue
-
-                article["content"] = article.get("content") or ""
-                article["publish_date"] = (
-                    article.get("publish_date") or ""
-                )
-
-                records.append(article)
-                valid_records += 1
-
-        source_stats[source_name] = {
-            "total_lines": total_lines,
-            "valid_records": valid_records,
-            "invalid_json": invalid_json,
-            "invalid_fields": invalid_fields,
-        }
-
-    return records, source_stats
+    return records
 
 
-def save_labels():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+def preprocess_data(records):
+    data = []
 
-    with open(LABELS_FILE, "w", encoding="utf-8") as file:
-        json.dump(
-            LABEL_MAPPING,
-            file,
-            ensure_ascii=False,
-            indent=4,
-        )
+    for record in records:
+        title = clean_text(record["title"])
+        category = str(record["category"]).strip()
 
-
-def preprocess_records(records):
-    processed_records = []
-    rejected_categories = 0
-
-    for article in records:
-        title = clean_text(article.get("title", ""))
-        content = clean_text(article.get("content", ""))
-
-        category_original = clean_text(
-            article.get("category", "")
-        )
-
-        category = normalize_category(category_original)
-
-        if category not in LABEL_MAPPING:
-            rejected_categories += 1
+        if not title:
             continue
 
-        label = LABEL_MAPPING[category]
-
-        if content:
-            text = f"{title}. {content}".strip()
-        else:
-            text = title
-
-        processed_records.append({
-            "id": str(article.get("id", "")),
-            "source": clean_text(article.get("source", "")),
-            "url": str(article.get("url", "")).strip(),
-            "title": title,
-            "content": content,
-            "text": text,
-            "publish_date": normalize_date(
-                article.get("publish_date")
-            ),
-            "category": category,
-            "category_original": category_original,
-            "label": label,
-        })
-
-    df = pd.DataFrame(processed_records)
-
-    if df.empty:
-        raise ValueError(
-            "No valid records remain after preprocessing."
+        date = pd.to_datetime(
+            record.get("publish_date", ""),
+            errors="coerce"
         )
 
-    return df, rejected_categories
+        data.append({
+            "id": record["id"],
+            "source": record["source"],
+            "url": record["url"],
+            "title": title,
+            "text": title,
+            "publish_date": date.strftime("%Y-%m-%d") if pd.notna(date) else "",
+            "category": category,
+            "label": CATEGORY_TO_LABEL[category.casefold()]
+        })
+
+    return pd.DataFrame(data)
 
 
 def remove_duplicates(df):
-    initial_count = len(df)
+    before = len(df)
 
-    df = df.copy()
+    df = df.drop_duplicates(subset=["url"], keep="first")
+    df = df.drop_duplicates(subset=["title"], keep="first")
+    df = df.reset_index(drop=True)
 
-    df["normalized_url"] = df["url"].apply(normalize_url)
-
-    has_url = df["normalized_url"] != ""
-
-    url_duplicates = df.loc[has_url].duplicated(
-        subset=["normalized_url"],
-        keep="first",
-    )
-
-    duplicate_url_count = int(url_duplicates.sum())
-
-    df = df.drop(
-        df.loc[has_url].index[url_duplicates]
-    )
-
-    has_date = df["publish_date"] != ""
-
-    title_date_duplicates = df.loc[has_date].duplicated(
-        subset=["title", "publish_date"],
-        keep="first",
-    )
-
-    duplicate_title_date_count = int(
-        title_date_duplicates.sum()
-    )
-
-    df = df.drop(
-        df.loc[has_date].index[title_date_duplicates]
-    )
-
-    df = df.drop(columns=["normalized_url"])
-
-    removed_count = initial_count - len(df)
-
-    return df, {
-        "initial_records": initial_count,
-        "duplicate_urls": duplicate_url_count,
-        "duplicate_title_date": duplicate_title_date_count,
-        "total_removed": removed_count,
-        "remaining_records": len(df),
-    }
+    return df, before - len(df)
 
 
-def split_dataset(df, random_state=RANDOM_STATE):
-    train_df, temporary_df = train_test_split(
+def split_dataset(df):
+    train, temp = train_test_split(
         df,
-        test_size=VAL_RATIO + TEST_RATIO,
-        random_state=random_state,
-        stratify=df["label"],
+        test_size=0.30,
+        random_state=RANDOM_STATE,
+        stratify=df["label"]
     )
 
-    val_df, test_df = train_test_split(
-        temporary_df,
-        test_size=TEST_RATIO / (VAL_RATIO + TEST_RATIO),
-        random_state=random_state,
-        stratify=temporary_df["label"],
+    validation, test = train_test_split(
+        temp,
+        test_size=0.50,
+        random_state=RANDOM_STATE,
+        stratify=temp["label"]
     )
 
-    return (
-        train_df.reset_index(drop=True),
-        val_df.reset_index(drop=True),
-        test_df.reset_index(drop=True),
-    )
-
-
-def save_dataset(df, output_path):
-    df = df.copy()
-    df = df[OUTPUT_COLUMNS]
-
-    df.to_csv(
-        output_path,
-        index=False,
-        encoding="utf-8-sig",
-    )
-
-
-def get_dataset_statistics(df):
-    return {
-        "total_records": int(len(df)),
-        "class_distribution": {
-            str(key): int(value)
-            for key, value in df["category"].value_counts().items()
-        },
-        "source_distribution": {
-            str(key): int(value)
-            for key, value in df["source"].value_counts().items()
-        },
-        "missing_content": int(
-            (df["content"].str.strip() == "").sum()
-        ),
-        "missing_publish_date": int(
-            (df["publish_date"].str.strip() == "").sum()
-        ),
-        "title_only_records": int(
-            (
-                (df["content"].str.strip() == "")
-                & (df["title"].str.strip() != "")
-            ).sum()
-        ),
-    }
-
-
-def generate_report(
-    source_stats,
-    preprocessing_stats,
-    duplicate_stats,
-    rejected_categories,
-    train_df,
-    val_df,
-    test_df,
-):
-    all_df = pd.concat(
-        [train_df, val_df, test_df],
-        ignore_index=True,
-    )
-
-    report = {
-        "input": {
-            "raw_directory": str(RAW_DIR),
-            "source_statistics": source_stats,
-        },
-        "preprocessing": {
-            "records_after_preprocessing": int(
-                preprocessing_stats
-            ),
-            "rejected_categories": int(rejected_categories),
-            "duplicate_removal": duplicate_stats,
-        },
-        "dataset": get_dataset_statistics(all_df),
-        "split": {
-            "random_state": RANDOM_STATE,
-            "train_ratio": TRAIN_RATIO,
-            "validation_ratio": VAL_RATIO,
-            "test_ratio": TEST_RATIO,
-            "train_records": int(len(train_df)),
-            "validation_records": int(len(val_df)),
-            "test_records": int(len(test_df)),
-        },
-        "class_distribution_by_split": {
-            "train": {
-                str(k): int(v)
-                for k, v in train_df["category"].value_counts().items()
-            },
-            "validation": {
-                str(k): int(v)
-                for k, v in val_df["category"].value_counts().items()
-            },
-            "test": {
-                str(k): int(v)
-                for k, v in test_df["category"].value_counts().items()
-            },
-        },
-    }
-
-    with open(REPORT_FILE, "w", encoding="utf-8") as file:
-        json.dump(
-            report,
-            file,
-            ensure_ascii=False,
-            indent=4,
-        )
+    return train, validation, test
 
 
 def main():
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    raw_records, source_stats = load_raw_data()
+    records = load_raw_data()
+    df = preprocess_data(records)
 
-    save_labels()
+    df, duplicates_removed = remove_duplicates(df)
 
-    df, rejected_categories = preprocess_records(raw_records)
+    train, validation, test = split_dataset(df)
 
-    preprocessing_count = len(df)
-
-    df, duplicate_stats = remove_duplicates(df)
-
-    if len(df) == 0:
-        raise ValueError(
-            "No records remain after duplicate removal."
-        )
-
-    train_df, val_df, test_df = split_dataset(
-        df,
-        random_state=RANDOM_STATE,
+    train.to_csv(
+        OUTPUT_DIR / "train.csv",
+        index=False,
+        encoding="utf-8-sig"
     )
 
-    save_dataset(train_df, TRAIN_FILE)
-    save_dataset(val_df, VAL_FILE)
-    save_dataset(test_df, TEST_FILE)
-
-    generate_report(
-        source_stats=source_stats,
-        preprocessing_stats=preprocessing_count,
-        duplicate_stats=duplicate_stats,
-        rejected_categories=rejected_categories,
-        train_df=train_df,
-        val_df=val_df,
-        test_df=test_df,
+    validation.to_csv(
+        OUTPUT_DIR / "validation.csv",
+        index=False,
+        encoding="utf-8-sig"
     )
+
+    test.to_csv(
+        OUTPUT_DIR / "test.csv",
+        index=False,
+        encoding="utf-8-sig"
+    )
+
+    with open(OUTPUT_DIR / "labels.json", "w", encoding="utf-8") as f:
+        json.dump(CATEGORY_TO_LABEL, f, ensure_ascii=False, indent=4)
+
+    report = {
+        "total_raw_records": len(records),
+        "total_after_preprocessing": len(df),
+        "duplicate_method": "url_or_title",
+        "duplicates_removed": duplicates_removed,
+        "train_size": len(train),
+        "validation_size": len(validation),
+        "test_size": len(test),
+        "label_distribution": {
+            str(k): int(v)
+            for k, v in df["label"].value_counts().sort_index().items()
+        }
+    }
+
+    with open(
+        OUTPUT_DIR / "preprocessing_report.json",
+        "w",
+        encoding="utf-8"
+    ) as f:
+        json.dump(report, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":
